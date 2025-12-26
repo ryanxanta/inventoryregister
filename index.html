@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Inventory Manager</title>
     <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
     <style>
         body {
             margin: 0;
@@ -61,13 +62,19 @@
             <svg width="18" height="18" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/>
             </svg>
-            <span>Export JSON</span>
+            <span>Export JSON (with images)</span>
         </button>
-        <button onclick="exportCSV()" class="w-full flex items-center gap-3 px-4 py-3 hover:bg-gray-50">
+        <button onclick="exportCSV()" class="w-full flex items-center gap-3 px-4 py-3 hover:bg-gray-50 border-b border-gray-100">
             <svg width="18" height="18" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/>
             </svg>
             <span>Export CSV</span>
+        </button>
+        <button onclick="exportZIP()" class="w-full flex items-center gap-3 px-4 py-3 hover:bg-gray-50">
+            <svg width="18" height="18" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/>
+            </svg>
+            <span>Export ZIP (CSV + Images)</span>
         </button>
     </div>
 
@@ -441,7 +448,7 @@
             `).join('');
         }
 
-        // Export JSON
+        // Export JSON (with images as base64)
         function exportJSON() {
             const dataStr = JSON.stringify(items, null, 2);
             const dataBlob = new Blob([dataStr], { type: 'application/json' });
@@ -454,13 +461,13 @@
             toggleMenu();
         }
 
-        // Export CSV
+        // Export CSV (without images)
         function exportCSV() {
-            const headers = ['Item Code', 'Name', 'Quantity', 'Mobile ID', 'Created At'];
+            const headers = ['Item Code', 'Name', 'Quantity', 'Mobile ID', 'Created At', 'Has Image'];
             const csvContent = [
                 headers.join(','),
                 ...items.map(item => 
-                    [item.itemCode, item.name, item.qty, item.mobileId, item.createdAt].join(',')
+                    [item.itemCode, `"${item.name}"`, item.qty, item.mobileId, item.createdAt, item.image ? 'Yes' : 'No'].join(',')
                 )
             ].join('\n');
             
@@ -472,6 +479,66 @@
             link.click();
             URL.revokeObjectURL(url);
             toggleMenu();
+        }
+
+        // Export ZIP (CSV + Images)
+        async function exportZIP() {
+            if (items.length === 0) {
+                alert('No items to export');
+                toggleMenu();
+                return;
+            }
+
+            try {
+                const zip = new JSZip();
+                const imagesFolder = zip.folder('images');
+                
+                // Create CSV content with image filenames
+                const headers = ['Item Code', 'Name', 'Quantity', 'Mobile ID', 'Created At', 'Image Filename'];
+                const csvRows = [headers.join(',')];
+                
+                // Add each item to CSV and its image to ZIP
+                for (let i = 0; i < items.length; i++) {
+                    const item = items[i];
+                    let imageFilename = '';
+                    
+                    // Add image to ZIP if it exists
+                    if (item.image) {
+                        imageFilename = `${item.itemCode}_${item.name.replace(/[^a-z0-9]/gi, '_')}.jpg`;
+                        // Convert base64 to binary
+                        const base64Data = item.image.split(',')[1];
+                        imagesFolder.file(imageFilename, base64Data, {base64: true});
+                    }
+                    
+                    // Add row to CSV
+                    csvRows.push([
+                        item.itemCode,
+                        `"${item.name}"`,
+                        item.qty,
+                        item.mobileId,
+                        item.createdAt,
+                        imageFilename
+                    ].join(','));
+                }
+                
+                // Add CSV to ZIP
+                const csvContent = csvRows.join('\n');
+                zip.file(`inventory_${mobileId}.csv`, csvContent);
+                
+                // Generate and download ZIP
+                const content = await zip.generateAsync({type: 'blob'});
+                const url = URL.createObjectURL(content);
+                const link = document.createElement('a');
+                link.href = url;
+                link.download = `inventory_${mobileId}_${new Date().toISOString().split('T')[0]}.zip`;
+                link.click();
+                URL.revokeObjectURL(url);
+                
+                toggleMenu();
+            } catch (error) {
+                alert('Error creating ZIP file: ' + error.message);
+                console.error('ZIP export error:', error);
+            }
         }
 
         // Close menu when clicking outside
